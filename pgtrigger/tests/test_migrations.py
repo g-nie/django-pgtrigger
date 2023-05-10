@@ -435,3 +435,57 @@ def test_makemigrations_create_remove_models(settings):
     # migrations. We revert the migrations we just made up until the through model
     # so that the test doesn't pass when it cleans up all migrations
     call_command("migrate", "tests", str(num_orig_migrations + 8).rjust(4, "0"))
+
+@pytest.mark.django_db(
+    databases=["default", "other", "receipt", "order", "sqlite"], transaction=True
+)
+@pytest.mark.usefixtures("reset_triggers", "reset_migrations")
+def test_proxy_models_with_multiple_base_classes_are_supported(settings):
+    assert not settings.PGTRIGGER_INSTALL_ON_MIGRATE
+    assert settings.PGTRIGGER_MIGRATIONS
+
+    num_orig_migrations = num_migration_files()
+    num_expected_migrations = num_orig_migrations
+
+    # No need to add specify Meta.triggers in the classes, the error was raised either way.
+    class BaseModel(models.Model):
+        pass
+
+    class SomeMixin:
+        pass
+
+    class ProxyModel(SomeMixin, BaseModel):
+        class Meta:
+            proxy = True
+
+    test_models.DynamicTestModel = ProxyModel
+
+    call_command("makemigrations")
+    assert num_migration_files() == num_expected_migrations + 1
+
+
+@pytest.mark.django_db(
+    databases=["default", "other", "receipt", "order", "sqlite"], transaction=True
+)
+@pytest.mark.usefixtures("reset_triggers", "reset_migrations")
+def test_proxy_models_with_abstract_base_classes_are_supported(settings):
+    assert not settings.PGTRIGGER_INSTALL_ON_MIGRATE
+    assert settings.PGTRIGGER_MIGRATIONS
+
+    num_orig_migrations = num_migration_files()
+    num_expected_migrations = num_orig_migrations
+
+    # No need to add specify Meta.triggers in the classes, the error was raised either way.
+    class AbstractModel(models.Model):
+        class Meta:
+            abstract = True
+
+    class BaseModel(models.Model):
+        pass
+
+    class ProxyModel(AbstractModel, BaseModel):
+        class Meta:
+            proxy = True
+
+    call_command("makemigrations")
+    assert num_migration_files() == num_expected_migrations + 1
