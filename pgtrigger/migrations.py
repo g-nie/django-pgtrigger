@@ -6,8 +6,7 @@ from django.db import transaction
 from django.db.migrations.operations.fields import AddField
 from django.db.migrations.operations.models import CreateModel, IndexOperation
 
-from pgtrigger import compiler
-from pgtrigger import utils
+from pgtrigger import compiler, utils
 
 
 def _add_trigger(schema_editor, model, trigger):
@@ -405,3 +404,22 @@ class DatabaseSchemaEditorMixin:
                 raise  # pragma: no cover
         else:
             return super().execute(*args, **kwargs)
+
+    def create_model(self, model):
+        """
+        Create the model
+
+        `Meta.triggers` isn't populated on the forwards `CreateTable` migration
+        (as Triggers are only added to the migration state via `AddTrigger`
+        operations). `Meta.triggers` may be populated when:
+
+        - The backwards operation of a `RemoveTable` operation where there was
+          still triggers defined in the model state when the table was
+          removed.
+        - Creating the tables of an unmigrated app when `run_syncdb` is
+          supplied to the migrate command (or when running tests).
+        """
+        super().create_model(model)
+
+        for trigger in getattr(model._meta, "triggers", []):
+            _add_trigger(self, model, trigger)

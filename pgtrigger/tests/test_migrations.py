@@ -3,17 +3,17 @@ import pathlib
 import shutil
 
 import ddf
-from django.apps import apps
 import django.contrib.auth.models as auth_models
+import pytest
+from django.apps import apps
 from django.core.management import call_command
 from django.db import models
 from django.db.utils import ProgrammingError
-import pytest
 
 import pgtrigger
+import pgtrigger.tests.models as test_models
 from pgtrigger import core
 from pgtrigger.tests import utils
-import pgtrigger.tests.models as test_models
 
 
 @pytest.fixture(autouse=True)
@@ -105,7 +105,7 @@ def test_makemigrations_existing_models(settings, request):
         call_command("makemigrations", verbosity=request.config.option.verbose)
         assert num_migration_files() == num_orig_migrations + 2
 
-        # Before migrating, I should be able to make a ``TestModel``
+        # Before migrating, I should be able to make a `TestModel`
         ddf.G("tests.TestModel")
 
         call_command("migrate", verbosity=request.config.option.verbose)
@@ -304,6 +304,20 @@ def test_makemigrations_create_remove_models(settings):
 
     with pytest.raises(ProgrammingError):
         protected_model.delete()
+
+    # Unapply migration where a model with a trigger is removed
+    # Any triggers that were defined on the model when it was removed should be
+    # recreated.
+    call_command("migrate", "tests", str(num_expected_migrations - 1).rjust(4, "0"))
+
+    test_models.DynamicTestModel = DynamicTestModel
+    protected_model = ddf.G(test_models.DynamicTestModel)
+    with utils.raises_trigger_error(match="Cannot delete"):
+        protected_model.delete()
+    del test_models.DynamicTestModel
+
+    # Reapply the migration we just unapplied
+    call_command("migrate")
 
     # Create a new proxy model on a third-party app and add it to the test models
     class DynamicProxyModel(auth_models.User):

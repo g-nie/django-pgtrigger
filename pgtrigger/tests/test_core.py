@@ -1,10 +1,11 @@
 import datetime as dt
 
 import ddf
+import django
+import pytest
 from django.contrib.auth.models import User
 from django.db import transaction
 from django.db.utils import NotSupportedError
-import pytest
 
 import pgtrigger
 from pgtrigger import core
@@ -294,7 +295,6 @@ def test_is_not_distinct_from_condition():
         | pgtrigger.Q(old__nullable__ndf=pgtrigger.F("new__nullable")),
     )
     with trigger.install(models.TestTrigger):
-
         with utils.raises_trigger_error(match="Cannot update rows"):
             test_model.int_field = 1
             test_model.save()
@@ -464,7 +464,9 @@ def test_arg_checks():
         )
 
     with pytest.raises(ValueError, match="> 47"):
-        pgtrigger.Trigger(when=pgtrigger.Before, operation=pgtrigger.Update, name="1" * 48).pgid
+        pgtrigger.Trigger(  # noqa
+            when=pgtrigger.Before, operation=pgtrigger.Update, name="1" * 48
+        ).pgid
 
 
 def test_operations():
@@ -495,7 +497,6 @@ def test_custom_trigger_definitions():
         func="RAISE EXCEPTION 'no no no!';",
     )
     with trigger.install(test_model):
-
         # Inserts and updates are no longer available
         with utils.raises_trigger_error(match="no no no!"):
             models.TestTrigger.objects.create()
@@ -588,6 +589,93 @@ def test_trigger_conditions():
 
         non_read_only.save()
         non_read_only.delete()
+
+
+@pytest.mark.parametrize(
+    "condition, expected_sql",
+    [
+        (pgtrigger.AnyChange(), "OLD.* IS DISTINCT FROM NEW.*"),
+        (pgtrigger.AnyDontChange(), "OLD.* IS NOT DISTINCT FROM NEW.*"),
+        (
+            pgtrigger.AllChange(),
+            '(OLD."char_pk_fk_field_id" IS DISTINCT FROM (NEW."char_pk_fk_field_id") AND OLD."dt_field" IS DISTINCT FROM (NEW."dt_field") AND OLD."field" IS DISTINCT FROM (NEW."field") AND OLD."fk_field_id" IS DISTINCT FROM (NEW."fk_field_id") AND OLD."id" IS DISTINCT FROM (NEW."id") AND OLD."int_field" IS DISTINCT FROM (NEW."int_field") AND OLD."nullable" IS DISTINCT FROM (NEW."nullable"))',  # noqa
+        ),
+        (
+            pgtrigger.AllDontChange(),
+            '(OLD."char_pk_fk_field_id" IS NOT DISTINCT FROM (NEW."char_pk_fk_field_id") AND OLD."dt_field" IS NOT DISTINCT FROM (NEW."dt_field") AND OLD."field" IS NOT DISTINCT FROM (NEW."field") AND OLD."fk_field_id" IS NOT DISTINCT FROM (NEW."fk_field_id") AND OLD."id" IS NOT DISTINCT FROM (NEW."id") AND OLD."int_field" IS NOT DISTINCT FROM (NEW."int_field") AND OLD."nullable" IS NOT DISTINCT FROM (NEW."nullable"))',  # noqa
+        ),
+        (~pgtrigger.AnyChange(), "NOT (OLD.* IS DISTINCT FROM NEW.*)"),
+        (
+            ~pgtrigger.AllChange(),
+            'NOT ((OLD."char_pk_fk_field_id" IS DISTINCT FROM (NEW."char_pk_fk_field_id") AND OLD."dt_field" IS DISTINCT FROM (NEW."dt_field") AND OLD."field" IS DISTINCT FROM (NEW."field") AND OLD."fk_field_id" IS DISTINCT FROM (NEW."fk_field_id") AND OLD."id" IS DISTINCT FROM (NEW."id") AND OLD."int_field" IS DISTINCT FROM (NEW."int_field") AND OLD."nullable" IS DISTINCT FROM (NEW."nullable")))',  # noqa
+        ),
+        (pgtrigger.AnyChange("field"), 'OLD."field" IS DISTINCT FROM (NEW."field")'),
+        (pgtrigger.AllChange("field"), 'OLD."field" IS DISTINCT FROM (NEW."field")'),
+        (~pgtrigger.AnyChange("field"), 'NOT (OLD."field" IS DISTINCT FROM (NEW."field"))'),
+        (~pgtrigger.AllChange("field"), 'NOT (OLD."field" IS DISTINCT FROM (NEW."field"))'),
+        (
+            pgtrigger.AnyChange("int_field", "dt_field"),
+            '(OLD."dt_field" IS DISTINCT FROM (NEW."dt_field") OR OLD."int_field" IS DISTINCT FROM (NEW."int_field"))',  # noqa
+        ),
+        (
+            pgtrigger.AnyDontChange("dt_field", "fk_field"),
+            '(OLD."dt_field" IS NOT DISTINCT FROM (NEW."dt_field") OR OLD."fk_field_id" IS NOT DISTINCT FROM (NEW."fk_field_id"))',  # noqa
+        ),
+        (
+            pgtrigger.AllChange("int_field", "dt_field"),
+            '(OLD."dt_field" IS DISTINCT FROM (NEW."dt_field") AND OLD."int_field" IS DISTINCT FROM (NEW."int_field"))',  # noqa
+        ),
+        (
+            pgtrigger.AllDontChange("int_field", "dt_field"),
+            '(OLD."dt_field" IS NOT DISTINCT FROM (NEW."dt_field") AND OLD."int_field" IS NOT DISTINCT FROM (NEW."int_field"))',  # noqa
+        ),
+        (
+            pgtrigger.AnyChange("int_field", "dt_field", exclude=["int_field"]),
+            'OLD."dt_field" IS DISTINCT FROM (NEW."dt_field")',
+        ),
+        (
+            pgtrigger.AnyChange(
+                "fk_field",
+                "char_pk_fk_field",
+                "int_field",
+                "dt_field",
+                exclude=["char_pk_fk_field", "field"],
+                exclude_auto=True,
+            ),
+            '(OLD."fk_field_id" IS DISTINCT FROM (NEW."fk_field_id") OR OLD."int_field" IS DISTINCT FROM (NEW."int_field"))',  # noqa
+        ),
+        (
+            pgtrigger.AnyChange(exclude_auto=True),
+            '(OLD."char_pk_fk_field_id" IS DISTINCT FROM (NEW."char_pk_fk_field_id") OR OLD."field" IS DISTINCT FROM (NEW."field") OR OLD."fk_field_id" IS DISTINCT FROM (NEW."fk_field_id") OR OLD."id" IS DISTINCT FROM (NEW."id") OR OLD."int_field" IS DISTINCT FROM (NEW."int_field") OR OLD."nullable" IS DISTINCT FROM (NEW."nullable"))',  # noqa
+        ),
+        (
+            pgtrigger.AllChange(exclude_auto=True),
+            '(OLD."char_pk_fk_field_id" IS DISTINCT FROM (NEW."char_pk_fk_field_id") AND OLD."field" IS DISTINCT FROM (NEW."field") AND OLD."fk_field_id" IS DISTINCT FROM (NEW."fk_field_id") AND OLD."id" IS DISTINCT FROM (NEW."id") AND OLD."int_field" IS DISTINCT FROM (NEW."int_field") AND OLD."nullable" IS DISTINCT FROM (NEW."nullable"))',  # noqa
+        ),
+    ],
+)
+def test_changed_condition(condition, expected_sql):
+    """Tests the pgtrigger.Changed condition utility"""
+    sql = condition.resolve(models.ChangedCondition)
+
+    # There are subtle SQL differences in django<4
+    if django.VERSION[0] < 4:
+        expected_sql = expected_sql.replace("(", "").replace(")", "")
+        sql = sql.replace("(", "").replace(")", "")
+
+    assert sql == expected_sql
+
+
+def test_changed_condition_bad_field():
+    """Verifies incorrect fields aren't allowed in changed conditions"""
+    with pytest.raises(ValueError, match="not found on model"):
+        pgtrigger.AnyChange("bad_field").resolve(models.ChangedCondition)
+
+    with pytest.raises(ValueError, match="not found on model"):
+        pgtrigger.AnyChange("m2m_field").resolve(models.ChangedCondition)
+
+    with pytest.raises(ValueError, match="not found on model"):
+        pgtrigger.AnyChange(exclude=["bad_field"]).resolve(models.ChangedCondition)
 
 
 @pytest.mark.django_db(databases=["default", "other"], transaction=True)
