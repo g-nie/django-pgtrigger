@@ -35,7 +35,7 @@ class ProtectedModel(models.Model):
 
 When migrations are created and executed, `ProtectedModel` will raise an exception anytime a deletion is attempted.
 
-Let's extend this example further and only protect deletions on inactive objects. In this example, the trigger conditionally runs when the row being deleted (the `OLD` row in trigger terminology) is still active:
+Let's extend this example further and only protect deletions on active objects. In this example, the trigger conditionally runs when the row being deleted (the `OLD` row in trigger terminology) is still active:
 
 ```python
 class ProtectedModel(models.Model):
@@ -58,7 +58,7 @@ Triggers are installed like other database objects. Run `python manage.py makemi
 
 ## Compatibility
 
-`django-pgtrigger` is compatible with Python 3.8 - 3.12, Django 3.2 - 4.2, Psycopg 2 - 3, and Postgres 12 - 16.
+`django-pgtrigger` is compatible with Python 3.8 - 3.12, Django 3.2 - 5.0, Psycopg 2 - 3, and Postgres 12 - 16.
 
 ## Next steps
 

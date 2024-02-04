@@ -1,6 +1,31 @@
 # Changelog
 
-## 4.9.0 (2023-10-15)
+## 4.11.0 (2023-11-26)
+
+### Feature
+
+  - Django 5.0 compatibility [Wesley Kendall, 2e1366e]
+
+    Support and test against Django 5 with psycopg2 and psycopg3.
+
+## 4.10.1 (2023-11-26)
+
+### Trivial
+
+  - Change docs so that deferred (AFTER) triggers return NULL [Peter Thomassen, 59be2e9]
+  - Fix typo in cookbook (`exclude` instead of `filter`) [Peter Thomassen, 3714c08]
+  - Fix typo in docs model protection example [Peter Thomassen, 00b86af]
+  - Do additional error checking for arguments supplied to `FSM` trigger. [Wesley Kendall, e203834]
+
+## 4.10.0 (2023-11-23)
+
+### Bug
+
+  - Fix issues updating triggers in non-atomic migrations [Artem Streltsov, 888c4cf]
+
+    Fields of trigger conditions can now have their types updated in non-atomic migrations.
+
+## 4.9.0 (2023-10-16)
 
 ### Feature
 
